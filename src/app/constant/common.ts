@@ -258,7 +258,6 @@ export const COMPANIES: Company[] = [
         bgImageAlt: "",
         from: new Date("2022/08/01"),
         to: new Date(),
-        present: true,
         description: `Logistics: Customize any order, shipment, or inventory data with logiec to reduce logistics costs! logiec offers a wide range of shipping solutions, from automating data transfer to handling shipments ranging from 100 to 150,000 per month. It accommodates various products and management methods, including goods, cosmetics, contact lenses, refrigerated and frozen items, and large appliances.`,
         skills: ["ReactJs", "Docker", "I18n"],
         color: "#2E9688",
@@ -300,7 +299,6 @@ export const COMPANIES: Company[] = [
         skills: ["NextJs", "Accessibility", "I18n", "AWS", "Setup project"],
         color: "#FFC107",
         private: true,
-        present: true,
         team: {
           fe: 3,
           be: 3,
@@ -331,7 +329,6 @@ export const COMPANIES: Company[] = [
         bgImageAlt: "fpnet",
         from: new Date("2023/12/08"),
         to: new Date("2024/04/01"),
-        present: true,
         description: `A platform for buying and selling books and documents, which includes a forum for discussing topics related to books.`,
         skills: ["NextJs", "Storybook", "Setup project"],
         color: "#7D0012",
@@ -349,7 +346,6 @@ export const COMPANIES: Company[] = [
         bgImageAlt: "msox",
         from: new Date("2024/04/01"),
         to: new Date(),
-        present: true,
         description: `A web application for managing construction workers: CRUD operations for worker information, importing and exporting CSV data, and scheduling shifts.`,
         skills: ["NextJs", "Google map api", "Setup project"],
         color: "#2C6F57",
@@ -363,10 +359,10 @@ export const COMPANIES: Company[] = [
     ],
   },
   {
-    name: "Fluxion (side project)",
-    imageUrl: "fluxion.png",
-    imageAlt: "fluxion",
-    color: "#4856A6",
+    name: "Rep",
+    imageUrl: "https://rep.run/_next/static/media/RepIcon.41878db9.svg",
+    imageAlt: "rep",
+    color: "#452e67",
     url: "",
     projects: [
       {
@@ -426,41 +422,65 @@ export const COMPANIES: Company[] = [
   },
 ];
 
-export const getYearsOfWorkingBySkill = (...skill: Skill[]) => {
-  const getHourRange = (from: Date, to: Date) => {
-    return (to.valueOf() - from.valueOf()) / 3600000;
-  };
-  const projects = COMPANIES.reduce(
-    (pre, cur) => [...pre, ...cur?.projects],
-    [] as Project[]
-  );
+type Period = { from: Date; to: Date };
 
-  const projectsBySkill: Project[] = [];
-  let presentMaxTime = 0;
-  let presentMaxTimeProject = null;
+export function getYearsOfWorkingBySkill(...skills: Skill[]): number {
+  if (skills.length === 0) return 0;
 
-  projects.forEach((p) => {
-    if (p.skills.some((s) => skill.includes(s))) {
-      if (p.present) {
-        // console.log(p)
-        const range = getHourRange(p.from, p.to);
-        if (range > presentMaxTime) {
-          presentMaxTime = range;
-          presentMaxTimeProject = p;
-        }
-      } else {
-        projectsBySkill.push(p);
+  const now = new Date();
+  const periods: Period[] = [];
+
+  // 1) Gather every project that actually uses one of the skills
+  for (const company of COMPANIES) {
+    for (const project of company.projects) {
+      // skip if no start date or start is in the future
+      if (!project.from) continue;
+      const from = new Date(project.from);
+      if (isNaN(from.getTime()) || from > now) continue;
+
+      // compare by some stable key (e.g. skill.id) rather than object reference
+      const hasSkill = project.skills.some((ps) => skills.includes(ps));
+      if (!hasSkill) continue;
+
+      // determine the end date (use now if it's ongoing or in the future)
+      let to = project.to ? new Date(project.to) : now;
+      if (project.present || to > now || isNaN(to.getTime())) {
+        to = now;
       }
-    }
-  });
+      // skip if somehow to is before from
+      if (to < from) continue;
 
-  if (presentMaxTimeProject) {
-    projectsBySkill.push(presentMaxTimeProject);
+      periods.push({ from, to });
+    }
   }
 
-  const hourOfWorking = projectsBySkill.reduce((pre, cur) => {
-    return getHourRange(cur?.from as Date, cur?.to as Date) + pre;
-  }, 0);
+  if (periods.length === 0) return 0;
 
-  return hourOfWorking / 24 / 365;
-};
+  // 2) Sort by start date
+  periods.sort((a, b) => a.from.getTime() - b.from.getTime());
+
+  // 3) Merge any overlapping or contiguous spans
+  const merged: Period[] = [periods[0]];
+  for (let i = 1; i < periods.length; i++) {
+    const curr = periods[i];
+    const last = merged[merged.length - 1];
+
+    if (curr.from.getTime() <= last.to.getTime()) {
+      // they overlap or touch — extend the last span’s end if needed
+      last.to = new Date(Math.max(last.to.getTime(), curr.to.getTime()));
+    } else {
+      // no overlap, start a fresh span
+      merged.push(curr);
+    }
+  }
+
+  // 4) Add up all the milliseconds, then convert to years
+  const totalMs = merged.reduce(
+    (sum, { from, to }) => sum + (to.getTime() - from.getTime()),
+    0
+  );
+  const msPerYear = 1000 * 60 * 60 * 24 * 365;
+
+  // 5) Return a rounded‐off value (two decimals)
+  return Math.round((totalMs / msPerYear) * 100) / 100;
+}
